@@ -29,29 +29,71 @@ const register = async (req, res) => {
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    // authService.loginUser จะยังทำงานเหมือนเดิม คือคืนค่า token และ user
-    const { token, user } = await authService.loginUser(email, password);
 
-    // --- ส่วนที่เปลี่ยนแปลง ---
-    res.cookie("token", token, {
-      httpOnly: true, // ป้องกันการเข้าถึงจาก JavaScript ฝั่ง client
-      secure: process.env.NODE_ENV === "production", // ใช้ HTTPS เท่านั้นบน Production
-      sameSite: "strict", // ป้องกันการโจมตีแบบ CSRF
-      maxAge: 24 * 60 * 60 * 1000, // อายุของ cookie (1 วัน) หน่วยเป็นมิลลิวินาที
+    // 1. รับค่า accessToken, refreshToken, และ user จาก Service
+    const { accessToken, refreshToken, user } = await authService.loginUser(
+      email,
+      password
+    );
+
+    // 2. ตั้งค่า refreshToken ใน HttpOnly Cookie
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 วัน
     });
 
-    // ส่งแค่ข้อมูล user กลับไป ไม่ต้องส่ง token ใน body แล้ว
+    // 3. ส่ง accessToken และข้อมูล user กลับไปใน JSON Body
     res.status(200).json({
       message: "Login successful!",
+      accessToken: accessToken,
       user: user,
     });
-    // -------------------------
   } catch (error) {
-    res.status(401).json({ message: error.message });
+    // 4. จัดการ Error ที่ส่งมาจาก Service
+    if (
+      error.message.includes("อีเมลหรือรหัสผ่านไม่ถูกต้อง") ||
+      error.message.includes("บัญชีของคุณถูกระงับ")
+    ) {
+      return res.status(401).json({ message: error.message });
+    }
+    console.error("Login Error:", error);
+    res.status(500).json({ message: "เกิดข้อผิดพลาดในระบบระหว่างการล็อกอิน" });
+  }
+};
+
+const refresh = async (req, res) => {
+  try {
+    const tokenFromCookie = req.cookies.refreshToken;
+    if (!tokenFromCookie) {
+      return res
+        .status(401)
+        .json({ message: "Access Denied. No refresh token provided." });
+    }
+
+    const newAccessToken = await authService.refreshAccessToken(
+      tokenFromCookie
+    );
+
+    res.status(200).json({
+      message: "Access token refreshed successfully.",
+      accessToken: newAccessToken,
+    });
+  } catch (error) {
+    if (
+      error.message.includes("Refresh Token") ||
+      error.message.includes("Session หมดอายุ")
+    ) {
+      return res.status(403).json({ message: error.message });
+    }
+    console.error("Refresh Token Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
   }
 };
 
 module.exports = {
   register,
   login,
+  refresh,
 };

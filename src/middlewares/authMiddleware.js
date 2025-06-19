@@ -1,19 +1,35 @@
 const jwt = require("jsonwebtoken");
 
 const verifyToken = (req, res, next) => {
-  const token = req.cookies.token;
+  // 1. ดึง Token จาก Authorization header
+  const authHeader = req.headers["authorization"];
 
-  if (!token) {
-    return res.status(401).json({ message: "Unauthorized: No token provided" });
+  // 2. ตรวจสอบว่า header และ token มีอยู่จริง และอยู่ในรูปแบบ "Bearer <TOKEN>"
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res
+      .status(401)
+      .json({ message: "Unauthorized: No token provided or malformed token" });
   }
 
+  const token = authHeader.split(" ")[1];
+
+  // 3. ตรวจสอบความถูกต้องของ Token
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // ข้อมูลที่ถูกถอดรหัสจะถูกเก็บใน req.user
-    next(); // อนุญาตให้ request เดินทางต่อไปยัง controller
+
+    // ที่ decoded ออกมาจะมี userId และ role, เราจะเก็บไว้ใน req.user
+    // แต่ใน payload ที่เราสร้าง มันอยู่ใต้ key 'user' อีกทีหรือไม่?
+    // จากโค้ด loginUser ของคุณ มันไม่มี key 'user' ซ้อนอยู่ ดังนั้น decoded คือ payload โดยตรง
+    req.user = decoded; // decoded คือ { userId: '...', role: '...' }
+
+    next(); // ถ้า Token ถูกต้อง, ไปยัง Middleware หรือ Controller ถัดไป
   } catch (err) {
-    // ถ้า token ไม่ถูกต้อง (หมดอายุ, แก้ไข) จะเข้า catch
-    return res.status(403).json({ message: "Forbidden: Invalid token" });
+    // ถ้า Token ไม่ถูกต้อง (หมดอายุ, แก้ไข) จะเข้า catch
+    // ที่นี่คือที่ที่จะส่ง 403 Forbidden กลับไป
+    // Frontend จะต้องดักจับ Error นี้แล้วไปเรียก /api/auth/refresh
+    return res
+      .status(403)
+      .json({ message: "Forbidden: Invalid or expired token" });
   }
 };
 

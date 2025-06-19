@@ -115,7 +115,56 @@ const loginUser = async (email, password) => {
   return { accessToken, refreshToken, user: userToReturn };
 };
 
+/**
+ * ตรวจสอบ Refresh Token และออก Access Token ใบใหม่
+ */
+const refreshAccessToken = async (tokenFromCookie) => {
+  // 1. ตรวจสอบว่ามี token ส่งมาหรือไม่
+  if (!tokenFromCookie) {
+    throw new Error("ไม่พบ Refresh Token");
+  }
+
+  // 2. ค้นหา token ในฐานข้อมูล
+  const refreshTokenQueryResult = await db.query(
+    "SELECT * FROM refresh_tokens WHERE token = $1",
+    [tokenFromCookie]
+  );
+  const storedToken = refreshTokenQueryResult.rows[0];
+
+  // 3. ถ้าไม่เจอ token หรือ token หมดอายุแล้ว ให้โยน Error
+  if (!storedToken) {
+    throw new Error("Refresh Token ไม่ถูกต้องหรือไม่ได้รับอนุญาต");
+  }
+  if (new Date(storedToken.expires_at) < new Date()) {
+    await db.query("DELETE FROM refresh_tokens WHERE id = $1", [
+      storedToken.id,
+    ]);
+    throw new Error("Session หมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง");
+  }
+
+  // 4. ค้นหาข้อมูลผู้ใช้จาก user_id ที่ผูกกับ token
+  const userQueryResult = await db.query("SELECT * FROM users WHERE id = $1", [
+    storedToken.user_id,
+  ]);
+  const user = userQueryResult.rows[0];
+  if (!user || !user.is_active) {
+    throw new Error("ไม่พบผู้ใช้หรือบัญชีถูกระงับ");
+  }
+
+  // 5. ถ้าทุกอย่างถูกต้อง, สร้าง Access Token ใบใหม่
+  const accessTokenPayload = {
+    userId: user.id,
+    role: user.role,
+  };
+  const newAccessToken = jwt.sign(accessTokenPayload, process.env.JWT_SECRET, {
+    expiresIn: "15m",
+  });
+
+  return newAccessToken;
+};
+
 module.exports = {
   registerUser,
   loginUser,
+  refreshAccessToken,
 };
