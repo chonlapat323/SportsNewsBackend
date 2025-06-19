@@ -17,4 +17,27 @@ const verifyToken = (req, res, next) => {
   }
 };
 
-module.exports = { verifyToken };
+const authorizeRoles = (allowedRoles) => {
+  return (req, res, next) => {
+    // เราคาดว่า verifyToken ทำงานไปก่อนแล้ว ดังนั้น req.user ควรจะมีอยู่
+    if (!req.user) {
+      return res
+        .status(403)
+        .json({ message: "Forbidden: User data not found" });
+    }
+
+    const { role } = req.user; // ดึง role ของผู้ใช้ออกจาก token
+
+    // ตรวจสอบว่า role ของผู้ใช้ อยู่ใน Array ของ roles ที่เราอนุญาตหรือไม่
+    if (allowedRoles.includes(role)) {
+      next(); // ถ้ามีสิทธิ์ ก็ให้ผ่านไปได้
+    } else {
+      // ถ้าไม่มีสิทธิ์ ก็ปฏิเสธไป
+      return res.status(403).json({
+        message: "Forbidden: You do not have the required permissions.",
+      });
+    }
+  };
+};
+
+module.exports = { verifyToken, authorizeRoles };
